@@ -2,38 +2,21 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime
-import socket
-import os
+import os  # socket нам больше не нужен, можно удалить эту строку
 
 app = Flask(__name__)
 CORS(app)
 
 DATABASE_FILE = 'zabbix_messages.db'
-PORT = int(os.environ.get('PORT', 5000))
 
-def init_database():
-    conn = sqlite3.connect(DATABASE_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            host_name TEXT,
-            problem_name TEXT,
-            severity TEXT,
-            message_text TEXT,
-            timestamp DATETIME,
-            is_read INTEGER DEFAULT 0
-        )
-    ''')
-    conn.commit()
-    conn.close()
-    print("✅ База данных создана")
+# Инициализируем базу данных ПРИ ЗАПУСКЕ ПРИЛОЖЕНИЯ
+init_database()
 
 @app.route('/')
 def home():
     return jsonify({
         "status": "online",
-        "message": "Zabbix Server работает на Render!",
+        "message": "Zabbix Server работает на Timeweb Cloud!", # Изменил название для ясности
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
