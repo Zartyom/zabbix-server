@@ -3,6 +3,7 @@ from flask_cors import CORS
 import sqlite3
 from datetime import datetime
 
+# Создаём объект приложения (именно его ожидает Gunicorn)
 app = Flask(__name__)
 CORS(app)
 
@@ -26,6 +27,7 @@ def init_database():
     conn.close()
     print("✅ База данных создана")
 
+# Вызываем создание базы данных
 init_database()
 
 @app.route('/')
