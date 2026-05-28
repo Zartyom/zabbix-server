@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime
-import os
 
 app = Flask(__name__)
 CORS(app)
@@ -33,7 +32,7 @@ init_database()
 def home():
     return jsonify({
         "status": "online",
-        "message": "Zabbix Server работает на Timeweb Cloud!",
+        "message": "Zabbix Server работает",
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
