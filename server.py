@@ -2,8 +2,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime
+import os
 
-# ⬇️ ОБЪЕКТ ДОЛЖЕН НАЗЫВАТЬСЯ app
 app = Flask(__name__)
 CORS(app)
 
@@ -33,7 +33,7 @@ init_database()
 def home():
     return jsonify({
         "status": "online",
-        "message": "Zabbix Server работает",
+        "message": "Zabbix Server работает на Timeweb Cloud!",
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
@@ -84,3 +84,12 @@ def get_messages():
         })
     conn.close()
     return jsonify({"success": True, "messages": messages})
+
+# ⬇️ ЭТО САМОЕ ВАЖНОЕ — добавляем правильный запуск для Timeweb
+if __name__ != '__main__':
+    # Если приложение запущено через Gunicorn (на хостинге), ничего не делаем
+    pass
+else:
+    # Только для локального запуска
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
