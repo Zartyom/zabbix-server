@@ -8,7 +8,6 @@ CORS(app)
 
 DATABASE_FILE = 'zabbix_messages.db'
 
-# ⬇️ ФУНКЦИЯ ОПРЕДЕЛЕНА ПЕРЕД ВЫЗОВОМ
 def init_database():
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
@@ -27,14 +26,13 @@ def init_database():
     conn.close()
     print("✅ База данных создана")
 
-# ⬇️ ВЫЗОВ ПОСЛЕ ОПРЕДЕЛЕНИЯ
 init_database()
 
 @app.route('/')
 def home():
     return jsonify({
         "status": "online",
-        "message": "Zabbix Server работает",
+        "message": "Zabbix Server работает на Timeweb Cloud!",
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
