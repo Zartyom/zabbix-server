@@ -8,6 +8,7 @@ CORS(app)
 
 DATABASE_FILE = 'zabbix_messages.db'
 
+# ⬇️ ФУНКЦИЯ ОПРЕДЕЛЕНА ПЕРЕД ВЫЗОВОМ
 def init_database():
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
@@ -26,6 +27,7 @@ def init_database():
     conn.close()
     print("✅ База данных создана")
 
+# ⬇️ ВЫЗОВ ПОСЛЕ ОПРЕДЕЛЕНИЯ
 init_database()
 
 @app.route('/')
