@@ -9,7 +9,6 @@ CORS(app)
 
 DATABASE_FILE = 'zabbix_messages.db'
 
-# ⬇️ СНАЧАЛА ОПРЕДЕЛЯЕМ ФУНКЦИЮ
 def init_database():
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
@@ -28,10 +27,8 @@ def init_database():
     conn.close()
     print("✅ База данных создана")
 
-# ⬇️ ПОТОМ ВЫЗЫВАЕМ
 init_database()
 
-# ⬇️ ПОТОМ ВСЕ МАРШРУТЫ
 @app.route('/')
 def home():
     return jsonify({
@@ -69,7 +66,12 @@ def webhook():
 def get_messages():
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
-    cursor.execute('SELECT id, host_name, problem_name, severity, message_text, timestamp FROM messages ORDER BY timestamp DESC LIMIT 50')
+    cursor.execute('''
+        SELECT id, host_name, problem_name, severity, message_text, timestamp 
+        FROM messages 
+        ORDER BY timestamp DESC 
+        LIMIT 50
+    ''')
     messages = []
     for row in cursor.fetchall():
         messages.append({
@@ -82,7 +84,3 @@ def get_messages():
         })
     conn.close()
     return jsonify({"success": True, "messages": messages})
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
