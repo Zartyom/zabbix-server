@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-import traceback
+import traceback 
 
 # Перенаправляем stderr в stdout и отключаем буферизацию
 sys.stderr = sys.stdout
