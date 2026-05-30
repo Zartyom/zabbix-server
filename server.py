@@ -11,10 +11,10 @@ import sqlite3
 app = Flask(__name__)
 CORS(app)
 
-# === Параметры подключения к PostgreSQL ===
-DB_HOST = '192.168.0.4'       # приватный IP кластера
+# === Параметры подключения к PostgreSQL (ваши данные) ===
+DB_HOST = '192.168.0.4'        # приватный IP вашего кластера
 DB_PORT = 5432
-DB_NAME = 'pc_monitor_db'     # имя вашей базы данных
+DB_NAME = 'pc_monitor_db'      # имя вашей базы данных (может быть default_db, уточните)
 DB_USER = 'gen_user'
 DB_PASS = 'mlas2024'
 
@@ -27,13 +27,16 @@ def get_db_connection():
         password=DB_PASS
     )
 
-# === Вспомогательные функции ===
+# === Инициализация таблиц (если не существуют) ===
 def init_postgres_tables():
-    """Создаёт таблицы, если их ещё нет (все уже должны быть созданы)"""
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # Таблицы уже должны быть, но на всякий случай проверим
+        # Проверяем, есть ли таблица users (достаточно одной)
+        cur.execute("SELECT 1 FROM users LIMIT 1")
+    except psycopg2.ProgrammingError:
+        # Таблицы нет, создаём
+        conn.rollback()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -77,20 +80,26 @@ def init_postgres_tables():
             )
         """)
         conn.commit()
-    except Exception as e:
-        print("⚠️ Ошибка при создании таблиц:", e)
+        # Добавляем админа, если его ещё нет
+        hashed = bcrypt.hashpw('admin123'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        cur.execute("INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s) ON CONFLICT (username) DO NOTHING", ('admin', hashed, 'admin'))
+        conn.commit()
+        print("✅ Таблицы PostgreSQL созданы, добавлен admin (пароль admin123)")
     finally:
         cur.close()
         conn.close()
 
 def migrate_sqlite_to_postgres():
-    """Переносит старые сообщения из SQLite в PostgreSQL (если есть)"""
     sqlite_db = 'zabbix_messages.db'
     if not os.path.exists(sqlite_db):
         return
     conn_sqlite = sqlite3.connect(sqlite_db)
     cur_sqlite = conn_sqlite.cursor()
-    cur_sqlite.execute("SELECT id, host_name, problem_name, severity, message_text, timestamp FROM messages")
+    try:
+        cur_sqlite.execute("SELECT id, host_name, problem_name, severity, message_text, timestamp FROM messages")
+    except sqlite3.OperationalError:
+        conn_sqlite.close()
+        return
     rows = cur_sqlite.fetchall()
     if not rows:
         conn_sqlite.close()
@@ -102,7 +111,6 @@ def migrate_sqlite_to_postgres():
             pg_cur.execute("""
                 INSERT INTO messages (host_name, problem_name, severity, message, timestamp, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (id) DO NOTHING
             """, (row[1], row[2], row[3], row[4], row[5], row[5]))
         except:
             pass
@@ -110,13 +118,13 @@ def migrate_sqlite_to_postgres():
     pg_cur.close()
     pg_conn.close()
     conn_sqlite.close()
-    print("✅ Сообщения из SQLite перенесены в PostgreSQL")
+    print("✅ Сообщения из SQLite перенесены в PostgreSQL (если были)")
 
-# Вызываем инициализацию и миграцию при старте
+# Выполняем один раз при старте
 init_postgres_tables()
 migrate_sqlite_to_postgres()
 
-# === Проверка токена (для защищённых маршрутов) ===
+# === Проверка токена ===
 def check_auth():
     auth_header = request.headers.get('Authorization', '')
     token = auth_header.replace('Bearer ', '')
@@ -132,7 +140,7 @@ def check_auth():
         return None, None
     return user['id'], user['role']
 
-# ==================== СТАРЫЕ МАРШРУТЫ (работают как раньше) ====================
+# ==================== СТАРЫЕ МАРШРУТЫ ====================
 @app.route('/')
 def home():
     return jsonify({
@@ -143,7 +151,6 @@ def home():
 
 @app.route('/api/zabbix-webhook', methods=['POST'])
 def webhook():
-    """Приём сообщений от Zabbix и сохранение в PostgreSQL"""
     try:
         data = request.json
         print(f"📨 Получено: {data}")
@@ -169,7 +176,6 @@ def webhook():
 
 @app.route('/api/messages', methods=['GET'])
 def get_messages_old():
-    """Возвращает последние 50 сообщений (в формате, совместимом со старым клиентом)"""
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     cur.execute("""
@@ -184,7 +190,7 @@ def get_messages_old():
     conn.close()
     return jsonify({"success": True, "messages": messages})
 
-# ==================== НОВЫЕ МАРШРУТЫ ДЛЯ ANDROID-ПРИЛОЖЕНИЯ ====================
+# ==================== НОВЫЕ МАРШРУТЫ ДЛЯ ANDROID ====================
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
@@ -394,7 +400,6 @@ def delete_user():
     conn.close()
     return jsonify({'success': True})
 
-# === Запуск для локальной разработки ===
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
