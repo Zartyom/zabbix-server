@@ -11,10 +11,10 @@ import sqlite3
 app = Flask(__name__)
 CORS(app)
 
-# === Параметры подключения к PostgreSQL (ваши данные) ===
-DB_HOST = '192.168.0.4'        # приватный IP вашего кластера
+# === Параметры подключения к PostgreSQL ===
+DB_HOST = '192.168.0.4'       # приватный IP кластера
 DB_PORT = 5432
-DB_NAME = 'pc_monitor_db'      # имя вашей базы данных (может быть default_db, уточните)
+DB_NAME = 'pc_monitor_db'     # имя базы данных
 DB_USER = 'gen_user'
 DB_PASS = 'mlas2024'
 
@@ -27,16 +27,11 @@ def get_db_connection():
         password=DB_PASS
     )
 
-# === Инициализация таблиц (если не существуют) ===
+# === Инициализация таблиц PostgreSQL и миграция из SQLite ===
 def init_postgres_tables():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # Проверяем, есть ли таблица users (достаточно одной)
-        cur.execute("SELECT 1 FROM users LIMIT 1")
-    except psycopg2.ProgrammingError:
-        # Таблицы нет, создаём
-        conn.rollback()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -80,11 +75,8 @@ def init_postgres_tables():
             )
         """)
         conn.commit()
-        # Добавляем админа, если его ещё нет
-        hashed = bcrypt.hashpw('admin123'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        cur.execute("INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s) ON CONFLICT (username) DO NOTHING", ('admin', hashed, 'admin'))
-        conn.commit()
-        print("✅ Таблицы PostgreSQL созданы, добавлен admin (пароль admin123)")
+    except Exception as e:
+        print("⚠️ Ошибка при создании таблиц:", e)
     finally:
         cur.close()
         conn.close()
@@ -112,15 +104,15 @@ def migrate_sqlite_to_postgres():
                 INSERT INTO messages (host_name, problem_name, severity, message, timestamp, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """, (row[1], row[2], row[3], row[4], row[5], row[5]))
-        except:
+        except Exception:
             pass
     pg_conn.commit()
     pg_cur.close()
     pg_conn.close()
     conn_sqlite.close()
-    print("✅ Сообщения из SQLite перенесены в PostgreSQL (если были)")
+    print("✅ Сообщения из SQLite перенесены в PostgreSQL")
 
-# Выполняем один раз при старте
+# Запускаем инициализацию и миграцию
 init_postgres_tables()
 migrate_sqlite_to_postgres()
 
@@ -140,7 +132,7 @@ def check_auth():
         return None, None
     return user['id'], user['role']
 
-# ==================== СТАРЫЕ МАРШРУТЫ ====================
+# ==================== СТАРЫЕ МАРШРУТЫ (вебхуки, сообщения) ====================
 @app.route('/')
 def home():
     return jsonify({
@@ -190,7 +182,7 @@ def get_messages_old():
     conn.close()
     return jsonify({"success": True, "messages": messages})
 
-# ==================== НОВЫЕ МАРШРУТЫ ДЛЯ ANDROID ====================
+# ==================== НОВЫЕ МАРШРУТЫ ДЛЯ ANDROID-ПРИЛОЖЕНИЯ ====================
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
@@ -321,6 +313,7 @@ def stats():
     conn.close()
     return jsonify({'active': active, 'solved_day': solved_day, 'solved_week': solved_week, 'solved_month': solved_month})
 
+# ==================== АДМИНКА ====================
 @app.route('/api/list_users', methods=['GET'])
 def list_users():
     _, role = check_auth()
@@ -400,6 +393,7 @@ def delete_user():
     conn.close()
     return jsonify({'success': True})
 
+# === Запуск приложения (для локальной отладки) ===
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
