@@ -2,12 +2,12 @@
 import sys
 import traceback
 
-# Принудительно сбрасываем буфер вывода
+# Перенаправляем stderr в stdout и отключаем буферизацию
 sys.stderr = sys.stdout
-
-print("=== Starting main.py ===", flush=True)
+print("=== STARTING APPLICATION ===", flush=True)
 
 try:
+    print("Importing modules...", flush=True)
     from flask import Flask, request, jsonify
     from flask_cors import CORS
     import psycopg2
@@ -17,20 +17,16 @@ try:
     import os
     from datetime import datetime
     import sqlite3
-    print("✓ Imports successful", flush=True)
-except Exception as e:
-    print(f"✗ Import error: {e}", flush=True)
-    traceback.print_exc()
-    sys.exit(1)
+    print("✓ All modules imported", flush=True)
 
-try:
+    print("Creating Flask app...", flush=True)
     app = Flask(__name__)
     CORS(app)
     print("✓ Flask app created", flush=True)
 
     # === Параметры подключения к PostgreSQL ===
-    # Используем публичный IP базы данных, так как внутри контейнера приватный может быть недоступен
-    DB_HOST = os.environ.get('DB_HOST', '45.153.71.178')  # публичный IP
+    # Используем переменные окружения (должны быть заданы в панели)
+    DB_HOST = os.environ.get('DB_HOST', '45.153.71.178')  # публичный IP базы данных
     DB_PORT = os.environ.get('DB_PORT', '5432')
     DB_NAME = os.environ.get('DB_NAME', 'default_db')
     DB_USER = os.environ.get('DB_USER', 'gen_user')
@@ -47,7 +43,7 @@ try:
             password=DB_PASS
         )
 
-    # === Инициализация таблиц (проверяем подключение) ===
+    # Проверка подключения к БД (не критично для запуска, но логируем)
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -56,11 +52,11 @@ try:
         conn.close()
         print("✓ Database connection successful", flush=True)
     except Exception as e:
-        print(f"✗ Database connection failed: {e}", flush=True)
-        traceback.print_exc()
-        # Не выходим, но предупреждаем
+        print(f"⚠ Database connection failed: {e}", flush=True)
+        # Не выходим, приложение может работать без БД для теста
 
-    def init_postgres_tables():
+    # Создание таблиц (если нужно)
+    def init_tables():
         try:
             conn = get_db_connection()
             cur = conn.cursor()
@@ -111,32 +107,14 @@ try:
             conn.close()
             print("✓ Tables created/verified", flush=True)
         except Exception as e:
-            print(f"✗ Table creation error: {e}", flush=True)
+            print(f"⚠ Table creation error: {e}", flush=True)
 
-    init_postgres_tables()
+    init_tables()
 
-    # === Проверка токена ===
-    def check_auth():
-        auth_header = request.headers.get('Authorization', '')
-        token = auth_header.replace('Bearer ', '')
-        if not token:
-            return None, None
-        try:
-            conn = get_db_connection()
-            cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-            cur.execute("SELECT id, role FROM users WHERE token = %s", (token,))
-            user = cur.fetchone()
-            cur.close()
-            conn.close()
-            return (user['id'], user['role']) if user else (None, None)
-        except Exception as e:
-            print(f"Auth check error: {e}", flush=True)
-            return None, None
-
-    # ==================== МАРШРУТЫ ====================
+    # === Минимальный маршрут для проверки работоспособности ===
     @app.route('/')
     def home():
-        return jsonify({"status": "online", "message": "Zabbix Server работает на Timeweb Cloud!"})
+        return jsonify({"status": "online", "message": "Zabbix Server работает"})
 
     @app.route('/api/get_messages', methods=['GET'])
     def get_messages():
@@ -149,20 +127,14 @@ try:
             conn.close()
             return jsonify({"messages": messages})
         except Exception as e:
-            print(f"Error in /api/get_messages: {e}", flush=True)
             return jsonify({"error": str(e)}), 500
 
-    @app.route('/api/login', methods=['POST'])
-    def login():
-        # ... (полный код как выше, но с try/except)
-        pass
-
-    # ... остальные маршруты (скопировать из предыдущего полного кода)
+    # Добавьте остальные маршруты (login, tasks, admin и т.д.) ниже...
 
     print("✓ All routes registered", flush=True)
 
 except Exception as e:
-    print(f"✗ Fatal error: {e}", flush=True)
+    print(f"❌ FATAL ERROR: {e}", flush=True)
     traceback.print_exc()
     sys.exit(1)
 
