@@ -11,11 +11,11 @@ app = Flask(__name__)
 CORS(app)
 
 # ===== ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ К БД (ЗАМЕНИТЕ НА ВАШИ) =====
-DB_HOST = os.environ.get('DB_HOST', '192.168.0.4')   # ваш приватный IP кластера
-DB_PORT = os.environ.get('DB_PORT', '5432')
-DB_NAME = os.environ.get('DB_NAME', 'pc_monitor_db')
-DB_USER = os.environ.get('DB_USER', 'postgres')
-DB_PASS = os.environ.get('DB_PASS', 'ваш_пароль')
+DB_HOST = '45.153.71.178'
+DB_PORT = '5432'
+DB_NAME = 'pc_monitor_db'        # уточните имя вашей БД
+DB_USER = 'postgres'             # или ваш пользователь
+DB_PASS = 'ваш_пароль'
 
 def get_db_connection():
     return psycopg2.connect(
