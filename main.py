@@ -13,9 +13,9 @@ CORS(app)
 # ===== ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ К БД (ЗАМЕНИТЕ НА ВАШИ) =====
 DB_HOST = '45.153.71.178'
 DB_PORT = '5432'
-DB_NAME = 'pc_monitor_db'        # уточните имя вашей БД
-DB_USER = 'postgres'             # или ваш пользователь
-DB_PASS = 'ваш_пароль'
+DB_NAME = 'default_db'        # уточните имя вашей БД
+DB_USER = 'gen_user'             # или ваш пользователь
+DB_PASS = 'mlas2024'
 
 def get_db_connection():
     return psycopg2.connect(
