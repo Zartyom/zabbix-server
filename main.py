@@ -252,14 +252,17 @@ def complete_task():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
+        # Получаем задачу из активных
         cur.execute("SELECT host_name, trigger_name, severity, comments, timestamp, created_at FROM tasks_active WHERE id = %s", (task_id,))
         task = cur.fetchone()
         if not task:
             return jsonify({'error': 'Task not found'}), 404
+        # Вставляем в архив
         cur.execute("""
             INSERT INTO tasks_archive (host_name, trigger_name, severity, comments, timestamp, completed_at, created_at)
             VALUES (%s, %s, %s, %s, %s, NOW(), %s)
         """, (task[0], task[1], task[2], task[3], task[4], task[5]))
+        # Удаляем из активных
         cur.execute("DELETE FROM tasks_active WHERE id = %s", (task_id,))
         conn.commit()
         cur.close()
