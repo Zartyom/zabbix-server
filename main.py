@@ -16,8 +16,6 @@ DB_NAME = os.environ.get('DB_NAME', 'default_db')
 DB_USER = os.environ.get('DB_USER', 'gen_user')
 DB_PASS = os.environ.get('DB_PASS', 'mlas2024')
 
-_tables_initialized = False
-
 def get_db_connection():
     return psycopg2.connect(
         host=DB_HOST,
@@ -29,9 +27,6 @@ def get_db_connection():
     )
 
 def init_tables():
-    global _tables_initialized
-    if _tables_initialized:
-        return
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -79,10 +74,10 @@ def init_tables():
         conn.commit()
         cur.close()
         conn.close()
-        _tables_initialized = True
-        print("Таблицы инициализированы")
     except Exception as e:
         print("Ошибка инициализации таблиц:", e)
+
+init_tables()
 
 def check_auth():
     auth_header = request.headers.get('Authorization', '')
@@ -90,7 +85,6 @@ def check_auth():
     if not token:
         return None, None
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cur.execute("SELECT id, role FROM users WHERE token = %s", (token,))
@@ -99,8 +93,8 @@ def check_auth():
         conn.close()
         if user:
             return user['id'], user['role']
-    except Exception as e:
-        print("Ошибка проверки токена:", e)
+    except Exception:
+        pass
     return None, None
 
 @app.route('/')
@@ -114,7 +108,6 @@ def api_root():
 @app.route('/api/zabbix-webhook', methods=['POST'])
 def webhook():
     try:
-        init_tables()
         data = request.json
         conn = get_db_connection()
         cur = conn.cursor()
@@ -149,11 +142,10 @@ def webhook():
 
 @app.route('/api/login', methods=['POST'])
 def login():
+    data = request.json
+    username = data.get('username', '')
+    password = data.get('password', '')
     try:
-        init_tables()
-        data = request.json
-        username = data.get('username', '')
-        password = data.get('password', '')
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cur.execute("SELECT id, password_hash, role FROM users WHERE username = %s", (username,))
@@ -184,7 +176,6 @@ def get_messages():
     if not user_id:
         return jsonify({'error': 'Unauthorized'}), 401
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cur.execute("""
@@ -211,7 +202,6 @@ def mark_read():
     if not message_id:
         return jsonify({'error': 'Missing id'}), 400
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("INSERT INTO user_message_read (user_id, message_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_id, message_id))
@@ -228,7 +218,6 @@ def get_tasks():
     if not user_id:
         return jsonify({'error': 'Unauthorized'}), 401
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cur.execute("""
@@ -253,7 +242,6 @@ def complete_task():
     if not task_id:
         return jsonify({'error': 'Missing task_id'}), 400
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("UPDATE tasks SET completed_at = NOW() WHERE id = %s", (task_id,))
@@ -274,7 +262,6 @@ def restore_task():
     if not task_id:
         return jsonify({'error': 'Missing task_id'}), 400
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("UPDATE tasks SET completed_at = NULL WHERE id = %s", (task_id,))
@@ -291,7 +278,6 @@ def stats():
     if not user_id:
         return jsonify({'error': 'Unauthorized'}), 401
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM tasks WHERE completed_at IS NULL")
@@ -314,7 +300,6 @@ def list_users():
     if role != 'admin':
         return jsonify({'error': 'Forbidden'}), 403
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cur.execute("SELECT id, username, role, created_at FROM users ORDER BY id")
@@ -339,7 +324,6 @@ def create_user():
     hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     token = secrets.token_hex(32)
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("INSERT INTO users (username, password_hash, token, role) VALUES (%s, %s, %s, %s)", (username, hashed, token, user_role))
@@ -362,7 +346,6 @@ def update_user():
     new_role = data.get('role')
     new_password = data.get('password')
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor()
         if new_role:
@@ -388,7 +371,6 @@ def delete_user():
     if user_id == current_id:
         return jsonify({'error': 'Нельзя удалить себя'}), 400
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
@@ -402,7 +384,6 @@ def delete_user():
 @app.route('/api/test_db')
 def test_db():
     try:
-        init_tables()
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute('SELECT 1')
