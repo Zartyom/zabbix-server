@@ -232,11 +232,7 @@ def get_tasks():
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        cur.execute("""
-            SELECT id, host_name, trigger_name, severity, comments, timestamp
-            FROM tasks_active
-            ORDER BY created_at DESC
-        """)
+        cur.execute("SELECT id, host_name, trigger_name, severity, comments, timestamp FROM tasks_active ORDER BY created_at DESC")
         tasks = [dict(row) for row in cur.fetchall()]
         cur.close()
         conn.close()
@@ -280,11 +276,7 @@ def get_archive():
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        cur.execute("""
-            SELECT id, host_name, trigger_name, severity, comments, timestamp, completed_at
-            FROM tasks_archive
-            ORDER BY completed_at DESC
-        """)
+        cur.execute("SELECT id, host_name, trigger_name, severity, comments, timestamp, completed_at FROM tasks_archive ORDER BY completed_at DESC")
         tasks = [dict(row) for row in cur.fetchall()]
         cur.close()
         conn.close()
