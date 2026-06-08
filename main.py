@@ -101,6 +101,16 @@ def check_auth():
         pass
     return None, None
 
+# ----- Корневой маршрут для проверки работы приложения -----
+@app.route('/')
+def home():
+    return "Zabbix monitoring API is running"
+
+# ----- Маршрут /api для проверки API -----
+@app.route('/api')
+def api_root():
+    return jsonify({"status": "ok", "message": "API is running"})
+
 # ----- Веб-перехватчик от Забикс -----
 @app.route('/api/zabbix-webhook', methods=['POST'])
 def webhook():
