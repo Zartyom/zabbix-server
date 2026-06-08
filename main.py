@@ -61,17 +61,25 @@ def init_tables():
                 PRIMARY KEY (user_id, message_id)
             )
         """)
+        # Таблица задач (общая, без привязки к пользователю)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id SERIAL PRIMARY KEY,
-                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
                 host_name VARCHAR(100) NOT NULL,
                 trigger_name VARCHAR(255) NOT NULL,
                 severity VARCHAR(50) NOT NULL,
                 comments TEXT,
                 timestamp VARCHAR(30) NOT NULL,
-                completed_at TIMESTAMP NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Таблица статуса выполнения задач по пользователям (индивидуально)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_task_status (
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+                completed_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (user_id, task_id)
             )
         """)
         conn.commit()
@@ -110,15 +118,28 @@ def home():
 def api_root():
     return jsonify({"status": "ok", "message": "API is running"})
 
-# ----- Веб-перехватчик от Забикс -----
+# ----- Веб-перехватчик от Забикс (создаёт сообщение и общую задачу) -----
 @app.route('/api/zabbix-webhook', methods=['POST'])
 def webhook():
     try:
         data = request.json
         conn = get_db_connection()
         cur = conn.cursor()
+        # Сохраняем сообщение
         cur.execute("""
             INSERT INTO messages (host_name, problem_name, severity, message, timestamp, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            data.get('host_name', 'Unknown'),
+            data.get('problem_name', 'Unknown'),
+            data.get('severity', 'Unknown'),
+            data.get('message', ''),
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.now()
+        ))
+        # Создаём задачу (общую, без привязки к пользователю)
+        cur.execute("""
+            INSERT INTO tasks (host_name, trigger_name, severity, comments, timestamp, created_at)
             VALUES (%s, %s, %s, %s, %s, %s)
         """, (
             data.get('host_name', 'Unknown'),
@@ -166,7 +187,7 @@ def check_auth_route():
         return jsonify({'success': True, 'user_id': user_id, 'role': role})
     return jsonify({'error': 'Unauthorized'}), 401
 
-# ----- Сообщения -----
+# ----- Сообщения (индивидуальное прочтение) -----
 @app.route('/api/get_messages', methods=['GET'])
 def get_messages():
     user_id, _ = check_auth()
@@ -209,7 +230,7 @@ def mark_read():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ----- Задачи -----
+# ----- Задачи (индивидуальное выполнение) -----
 @app.route('/api/get_tasks', methods=['GET'])
 def get_tasks():
     user_id, _ = check_auth()
@@ -219,10 +240,11 @@ def get_tasks():
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cur.execute("""
-            SELECT id, host_name, trigger_name, severity, comments, timestamp, completed_at
-            FROM tasks
-            WHERE user_id = %s AND completed_at IS NULL
-            ORDER BY created_at DESC
+            SELECT t.id, t.host_name, t.trigger_name, t.severity, t.comments, t.timestamp
+            FROM tasks t
+            LEFT JOIN user_task_status uts ON t.id = uts.task_id AND uts.user_id = %s
+            WHERE uts.user_id IS NULL
+            ORDER BY t.created_at DESC
         """, (user_id,))
         tasks = [dict(row) for row in cur.fetchall()]
         cur.close()
@@ -243,7 +265,7 @@ def complete_task():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("UPDATE tasks SET completed_at = NOW() WHERE id = %s AND user_id = %s", (task_id, user_id))
+        cur.execute("INSERT INTO user_task_status (user_id, task_id, completed_at) VALUES (%s, %s, NOW()) ON CONFLICT DO NOTHING", (user_id, task_id))
         conn.commit()
         cur.close()
         conn.close()
@@ -261,7 +283,7 @@ def restore_task():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("UPDATE tasks SET completed_at = NULL WHERE id = %s AND user_id = %s", (task_id, user_id))
+        cur.execute("DELETE FROM user_task_status WHERE user_id = %s AND task_id = %s", (user_id, task_id))
         conn.commit()
         cur.close()
         conn.close()
@@ -269,7 +291,29 @@ def restore_task():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ----- Статистика -----
+# ----- Архив выполненных задач (индивидуально) -----
+@app.route('/api/get_archive', methods=['GET'])
+def get_archive():
+    user_id, _ = check_auth()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur.execute("""
+            SELECT t.id, t.host_name, t.trigger_name, t.severity, t.comments, t.timestamp, uts.completed_at
+            FROM tasks t
+            JOIN user_task_status uts ON t.id = uts.task_id AND uts.user_id = %s
+            ORDER BY uts.completed_at DESC
+        """, (user_id,))
+        tasks = [dict(row) for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return jsonify({"tasks": tasks})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ----- Статистика (индивидуальная) -----
 @app.route('/api/stats', methods=['GET'])
 def stats():
     user_id, _ = check_auth()
@@ -278,13 +322,26 @@ def stats():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s AND completed_at IS NULL", (user_id,))
+        cur.execute("""
+            SELECT COUNT(*) FROM tasks t
+            LEFT JOIN user_task_status uts ON t.id = uts.task_id AND uts.user_id = %s
+            WHERE uts.user_id IS NULL
+        """, (user_id,))
         active = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s AND completed_at >= NOW() - INTERVAL '1 day'", (user_id,))
+        cur.execute("""
+            SELECT COUNT(*) FROM user_task_status
+            WHERE user_id = %s AND completed_at >= NOW() - INTERVAL '1 day'
+        """, (user_id,))
         solved_day = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s AND completed_at >= NOW() - INTERVAL '7 days'", (user_id,))
+        cur.execute("""
+            SELECT COUNT(*) FROM user_task_status
+            WHERE user_id = %s AND completed_at >= NOW() - INTERVAL '7 days'
+        """, (user_id,))
         solved_week = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s AND completed_at >= NOW() - INTERVAL '30 days'", (user_id,))
+        cur.execute("""
+            SELECT COUNT(*) FROM user_task_status
+            WHERE user_id = %s AND completed_at >= NOW() - INTERVAL '30 days'
+        """, (user_id,))
         solved_month = cur.fetchone()[0]
         cur.close()
         conn.close()
@@ -292,7 +349,7 @@ def stats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ----- Администрирование -----
+# ----- Администрирование (только для администратора) -----
 @app.route('/api/list_users', methods=['GET'])
 def list_users():
     _, role = check_auth()
@@ -329,7 +386,7 @@ def create_user():
         conn.commit()
         cur.close()
         conn.close()
-        return jsonify({'success': True, 'id': cur.lastrowid})
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -380,7 +437,7 @@ def delete_user():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ----- Диагностический маршрут (опционально, можно удалить) -----
+# ----- Тестовый маршрут для проверки соединения с БД -----
 @app.route('/api/test_db')
 def test_db():
     try:
