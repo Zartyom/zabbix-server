@@ -59,7 +59,6 @@ def init_tables():
                 PRIMARY KEY (user_id, message_id)
             )
         """)
-        # Таблица задач общая, с полем completed_at (NULL = активная)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id SERIAL PRIMARY KEY,
@@ -72,6 +71,8 @@ def init_tables():
                 completed_at TIMESTAMP NULL
             )
         """)
+        # Удаляем старую таблицу индивидуальных статусов, если она есть
+        cur.execute("DROP TABLE IF EXISTS user_task_status CASCADE")
         conn.commit()
         cur.close()
         conn.close()
@@ -104,7 +105,7 @@ def home():
 
 @app.route('/api')
 def api_root():
-    return jsonify({"status": "ok", "message": "API is running"})
+    return jsonify({"status": "ok"})
 
 @app.route('/api/zabbix-webhook', methods=['POST'])
 def webhook():
@@ -217,14 +218,16 @@ def mark_read():
 # Задачи (общие)
 @app.route('/api/get_tasks', methods=['GET'])
 def get_tasks():
-    _, _ = check_auth()  # просто проверяем авторизацию, но пользователь не важен
+    # аутентификация не требуется для чтения задач, но проверим токен для совместимости
+    user_id, _ = check_auth()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cur.execute("""
-            SELECT id, host_name, trigger_name, severity, comments, timestamp
+            SELECT id, host_name, trigger_name, severity, comments, timestamp, completed_at
             FROM tasks
-            WHERE completed_at IS NULL
             ORDER BY created_at DESC
         """)
         tasks = [dict(row) for row in cur.fetchall()]
@@ -236,7 +239,9 @@ def get_tasks():
 
 @app.route('/api/complete_task', methods=['POST'])
 def complete_task():
-    _, _ = check_auth()
+    user_id, _ = check_auth()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
     data = request.json
     task_id = data.get('task_id')
     if not task_id:
@@ -244,7 +249,7 @@ def complete_task():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("UPDATE tasks SET completed_at = NOW() WHERE id = %s AND completed_at IS NULL", (task_id,))
+        cur.execute("UPDATE tasks SET completed_at = NOW() WHERE id = %s", (task_id,))
         conn.commit()
         cur.close()
         conn.close()
@@ -254,7 +259,9 @@ def complete_task():
 
 @app.route('/api/restore_task', methods=['POST'])
 def restore_task():
-    _, _ = check_auth()
+    user_id, _ = check_auth()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
     data = request.json
     task_id = data.get('task_id')
     try:
@@ -268,29 +275,12 @@ def restore_task():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/get_archive', methods=['GET'])
-def get_archive():
-    _, _ = check_auth()
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        cur.execute("""
-            SELECT id, host_name, trigger_name, severity, comments, timestamp, completed_at
-            FROM tasks
-            WHERE completed_at IS NOT NULL
-            ORDER BY completed_at DESC
-        """)
-        tasks = [dict(row) for row in cur.fetchall()]
-        cur.close()
-        conn.close()
-        return jsonify({"tasks": tasks})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 # Статистика (общая)
 @app.route('/api/stats', methods=['GET'])
 def stats():
-    _, _ = check_auth()
+    user_id, _ = check_auth()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
     try:
         conn = get_db_connection()
         cur = conn.cursor()
