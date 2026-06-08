@@ -59,6 +59,7 @@ def init_tables():
                 PRIMARY KEY (user_id, message_id)
             )
         """)
+        # Таблица задач (общая, без привязки к пользователю)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id SERIAL PRIMARY KEY,
@@ -70,6 +71,7 @@ def init_tables():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Таблица статуса выполнения для каждого пользователя
         cur.execute("""
             CREATE TABLE IF NOT EXISTS user_task_status (
                 user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -110,7 +112,7 @@ def home():
 
 @app.route('/api')
 def api_root():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "message": "API is running"})
 
 @app.route('/api/zabbix-webhook', methods=['POST'])
 def webhook():
