@@ -60,26 +60,15 @@ def init_tables():
             )
         """)
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS tasks_active (
+            CREATE TABLE IF NOT EXISTS tasks (
                 id SERIAL PRIMARY KEY,
                 host_name VARCHAR(100) NOT NULL,
                 trigger_name VARCHAR(255) NOT NULL,
                 severity VARCHAR(50) NOT NULL,
                 comments TEXT,
                 timestamp VARCHAR(30) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS tasks_archive (
-                id SERIAL PRIMARY KEY,
-                host_name VARCHAR(100) NOT NULL,
-                trigger_name VARCHAR(255) NOT NULL,
-                severity VARCHAR(50) NOT NULL,
-                comments TEXT,
-                timestamp VARCHAR(30) NOT NULL,
-                completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active INTEGER DEFAULT 1
             )
         """)
         conn.commit()
@@ -135,8 +124,8 @@ def webhook():
             datetime.now()
         ))
         cur.execute("""
-            INSERT INTO tasks_active (host_name, trigger_name, severity, comments, timestamp, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO tasks (host_name, trigger_name, severity, comments, timestamp, created_at, is_active)
+            VALUES (%s, %s, %s, %s, %s, %s, 1)
         """, (
             data.get('host_name', 'Unknown'),
             data.get('problem_name', 'Unknown'),
@@ -224,6 +213,7 @@ def mark_read():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Активные задачи (is_active = 1)
 @app.route('/api/get_tasks', methods=['GET'])
 def get_tasks():
     user_id, _ = check_auth()
@@ -232,7 +222,7 @@ def get_tasks():
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        cur.execute("SELECT id, host_name, trigger_name, severity, comments, timestamp FROM tasks_active ORDER BY created_at DESC")
+        cur.execute("SELECT id, host_name, trigger_name, severity, comments, timestamp FROM tasks WHERE is_active = 1 ORDER BY created_at DESC")
         tasks = [dict(row) for row in cur.fetchall()]
         cur.close()
         conn.close()
@@ -240,6 +230,24 @@ def get_tasks():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Архив (is_active = 0)
+@app.route('/api/get_archive', methods=['GET'])
+def get_archive():
+    user_id, _ = check_auth()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur.execute("SELECT id, host_name, trigger_name, severity, comments, timestamp, created_at FROM tasks WHERE is_active = 0 ORDER BY created_at DESC")
+        tasks = [dict(row) for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return jsonify({"tasks": tasks})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Выполнить задачу (установить is_active = 0)
 @app.route('/api/complete_task', methods=['POST'])
 def complete_task():
     user_id, _ = check_auth()
@@ -252,18 +260,9 @@ def complete_task():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        # Получаем задачу из активных
-        cur.execute("SELECT host_name, trigger_name, severity, comments, timestamp, created_at FROM tasks_active WHERE id = %s", (task_id,))
-        task = cur.fetchone()
-        if not task:
-            return jsonify({'error': 'Task not found'}), 404
-        # Вставляем в архив
-        cur.execute("""
-            INSERT INTO tasks_archive (host_name, trigger_name, severity, comments, timestamp, completed_at, created_at)
-            VALUES (%s, %s, %s, %s, %s, NOW(), %s)
-        """, (task[0], task[1], task[2], task[3], task[4], task[5]))
-        # Удаляем из активных
-        cur.execute("DELETE FROM tasks_active WHERE id = %s", (task_id,))
+        cur.execute("UPDATE tasks SET is_active = 0 WHERE id = %s AND is_active = 1", (task_id,))
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Task not found or already completed'}), 404
         conn.commit()
         cur.close()
         conn.close()
@@ -271,22 +270,7 @@ def complete_task():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/get_archive', methods=['GET'])
-def get_archive():
-    user_id, _ = check_auth()
-    if not user_id:
-        return jsonify({'error': 'Unauthorized'}), 401
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        cur.execute("SELECT id, host_name, trigger_name, severity, comments, timestamp, completed_at FROM tasks_archive WHERE completed_at IS NOT NULL ORDER BY completed_at DESC")
-        tasks = [dict(row) for row in cur.fetchall()]
-        cur.close()
-        conn.close()
-        return jsonify({"tasks": tasks})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+# Восстановить задачу (установить is_active = 1)
 @app.route('/api/restore_task', methods=['POST'])
 def restore_task():
     user_id, _ = check_auth()
@@ -299,15 +283,9 @@ def restore_task():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT host_name, trigger_name, severity, comments, timestamp, created_at FROM tasks_archive WHERE id = %s", (task_id,))
-        task = cur.fetchone()
-        if not task:
-            return jsonify({'error': 'Task not found'}), 404
-        cur.execute("""
-            INSERT INTO tasks_active (host_name, trigger_name, severity, comments, timestamp, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (task[0], task[1], task[2], task[3], task[4], task[5]))
-        cur.execute("DELETE FROM tasks_archive WHERE id = %s", (task_id,))
+        cur.execute("UPDATE tasks SET is_active = 1 WHERE id = %s AND is_active = 0", (task_id,))
+        if cur.rowcount == 0:
+            return jsonify({'error': 'Task not found or not archived'}), 404
         conn.commit()
         cur.close()
         conn.close()
@@ -315,6 +293,7 @@ def restore_task():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Статистика
 @app.route('/api/stats', methods=['GET'])
 def stats():
     user_id, _ = check_auth()
@@ -323,13 +302,13 @@ def stats():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM tasks_active")
+        cur.execute("SELECT COUNT(*) FROM tasks WHERE is_active = 1")
         active = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM tasks_archive WHERE completed_at >= NOW() - INTERVAL '1 day'")
+        cur.execute("SELECT COUNT(*) FROM tasks WHERE is_active = 0 AND created_at >= NOW() - INTERVAL '1 day'")
         solved_day = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM tasks_archive WHERE completed_at >= NOW() - INTERVAL '7 days'")
+        cur.execute("SELECT COUNT(*) FROM tasks WHERE is_active = 0 AND created_at >= NOW() - INTERVAL '7 days'")
         solved_week = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM tasks_archive WHERE completed_at >= NOW() - INTERVAL '30 days'")
+        cur.execute("SELECT COUNT(*) FROM tasks WHERE is_active = 0 AND created_at >= NOW() - INTERVAL '30 days'")
         solved_month = cur.fetchone()[0]
         cur.close()
         conn.close()
@@ -337,6 +316,7 @@ def stats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Административные маршруты (без изменений)
 @app.route('/api/list_users', methods=['GET'])
 def list_users():
     _, role = check_auth()
