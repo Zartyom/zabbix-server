@@ -10,7 +10,6 @@ from datetime import datetime
 app = Flask(__name__)
 CORS(app)
 
-# Параметры подключения к базе данных (задаются в переменных окружения)
 DB_HOST = os.environ.get('DB_HOST', '45.153.71.178')
 DB_PORT = os.environ.get('DB_PORT', '5432')
 DB_NAME = os.environ.get('DB_NAME', 'default_db')
@@ -27,7 +26,6 @@ def get_db_connection():
         connect_timeout=5
     )
 
-# Создание таблиц (если не существуют)
 def init_tables():
     try:
         conn = get_db_connection()
@@ -61,7 +59,6 @@ def init_tables():
                 PRIMARY KEY (user_id, message_id)
             )
         """)
-        # Таблица задач (общая, без привязки к пользователю)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
                 id SERIAL PRIMARY KEY,
@@ -73,7 +70,6 @@ def init_tables():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Таблица статуса выполнения задач по пользователям (индивидуально)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS user_task_status (
                 user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -90,7 +86,6 @@ def init_tables():
 
 init_tables()
 
-# Вспомогательная функция проверки токена
 def check_auth():
     auth_header = request.headers.get('Authorization', '')
     token = auth_header.replace('Bearer ', '')
@@ -109,16 +104,14 @@ def check_auth():
         pass
     return None, None
 
-# ----- Корневые маршруты для проверки работоспособности -----
 @app.route('/')
 def home():
     return "Zabbix monitoring API is running"
 
 @app.route('/api')
 def api_root():
-    return jsonify({"status": "ok", "message": "API is running"})
+    return jsonify({"status": "ok"})
 
-# ----- Веб-перехватчик от Забикс (создаёт сообщение и общую задачу) -----
 @app.route('/api/zabbix-webhook', methods=['POST'])
 def webhook():
     try:
@@ -137,7 +130,7 @@ def webhook():
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             datetime.now()
         ))
-        # Создаём задачу (общую, без привязки к пользователю)
+        # Создаём задачу (общую)
         cur.execute("""
             INSERT INTO tasks (host_name, trigger_name, severity, comments, timestamp, created_at)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -156,7 +149,6 @@ def webhook():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ----- Аутентификация -----
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json
@@ -187,7 +179,6 @@ def check_auth_route():
         return jsonify({'success': True, 'user_id': user_id, 'role': role})
     return jsonify({'error': 'Unauthorized'}), 401
 
-# ----- Сообщения (индивидуальное прочтение) -----
 @app.route('/api/get_messages', methods=['GET'])
 def get_messages():
     user_id, _ = check_auth()
@@ -230,7 +221,6 @@ def mark_read():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ----- Задачи (индивидуальное выполнение) -----
 @app.route('/api/get_tasks', methods=['GET'])
 def get_tasks():
     user_id, _ = check_auth()
@@ -245,6 +235,27 @@ def get_tasks():
             LEFT JOIN user_task_status uts ON t.id = uts.task_id AND uts.user_id = %s
             WHERE uts.user_id IS NULL
             ORDER BY t.created_at DESC
+        """, (user_id,))
+        tasks = [dict(row) for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return jsonify({"tasks": tasks})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/get_archive', methods=['GET'])
+def get_archive():
+    user_id, _ = check_auth()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur.execute("""
+            SELECT t.id, t.host_name, t.trigger_name, t.severity, t.comments, t.timestamp, uts.completed_at
+            FROM tasks t
+            JOIN user_task_status uts ON t.id = uts.task_id AND uts.user_id = %s
+            ORDER BY uts.completed_at DESC
         """, (user_id,))
         tasks = [dict(row) for row in cur.fetchall()]
         cur.close()
@@ -291,29 +302,6 @@ def restore_task():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ----- Архив выполненных задач (индивидуально) -----
-@app.route('/api/get_archive', methods=['GET'])
-def get_archive():
-    user_id, _ = check_auth()
-    if not user_id:
-        return jsonify({'error': 'Unauthorized'}), 401
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        cur.execute("""
-            SELECT t.id, t.host_name, t.trigger_name, t.severity, t.comments, t.timestamp, uts.completed_at
-            FROM tasks t
-            JOIN user_task_status uts ON t.id = uts.task_id AND uts.user_id = %s
-            ORDER BY uts.completed_at DESC
-        """, (user_id,))
-        tasks = [dict(row) for row in cur.fetchall()]
-        cur.close()
-        conn.close()
-        return jsonify({"tasks": tasks})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# ----- Статистика (индивидуальная) -----
 @app.route('/api/stats', methods=['GET'])
 def stats():
     user_id, _ = check_auth()
@@ -349,7 +337,6 @@ def stats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ----- Администрирование (только для администратора) -----
 @app.route('/api/list_users', methods=['GET'])
 def list_users():
     _, role = check_auth()
@@ -362,7 +349,7 @@ def list_users():
         users = [dict(row) for row in cur.fetchall()]
         cur.close()
         conn.close()
-        return jsonify({"users": users})   # обернули в объект
+        return jsonify(users)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -437,7 +424,6 @@ def delete_user():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ----- Тестовый маршрут для проверки соединения с БД -----
 @app.route('/api/test_db')
 def test_db():
     try:
