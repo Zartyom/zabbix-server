@@ -59,7 +59,6 @@ def init_tables():
                 PRIMARY KEY (user_id, message_id)
             )
         """)
-        # Таблица активных задач
         cur.execute("""
             CREATE TABLE IF NOT EXISTS tasks_active (
                 id SERIAL PRIMARY KEY,
@@ -71,7 +70,6 @@ def init_tables():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Таблица архива (выполненных задач)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS tasks_archive (
                 id SERIAL PRIMARY KEY,
@@ -107,8 +105,8 @@ def check_auth():
         conn.close()
         if user:
             return user['id'], user['role']
-    except Exception as e:
-        print("Ошибка проверки токена:", e)
+    except Exception:
+        pass
     return None, None
 
 @app.route('/')
@@ -125,7 +123,6 @@ def webhook():
         data = request.json
         conn = get_db_connection()
         cur = conn.cursor()
-        # Сохраняем сообщение
         cur.execute("""
             INSERT INTO messages (host_name, problem_name, severity, message, timestamp, created_at)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -137,7 +134,6 @@ def webhook():
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             datetime.now()
         ))
-        # Создаём активную задачу
         cur.execute("""
             INSERT INTO tasks_active (host_name, trigger_name, severity, comments, timestamp, created_at)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -228,7 +224,6 @@ def mark_read():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- Активные задачи ---
 @app.route('/api/get_tasks', methods=['GET'])
 def get_tasks():
     user_id, _ = check_auth()
@@ -261,17 +256,14 @@ def complete_task():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        # Получаем задачу из активных
         cur.execute("SELECT host_name, trigger_name, severity, comments, timestamp, created_at FROM tasks_active WHERE id = %s", (task_id,))
         task = cur.fetchone()
         if not task:
             return jsonify({'error': 'Task not found'}), 404
-        # Вставляем в архив
         cur.execute("""
             INSERT INTO tasks_archive (host_name, trigger_name, severity, comments, timestamp, completed_at, created_at)
             VALUES (%s, %s, %s, %s, %s, NOW(), %s)
         """, (task[0], task[1], task[2], task[3], task[4], task[5]))
-        # Удаляем из активных
         cur.execute("DELETE FROM tasks_active WHERE id = %s", (task_id,))
         conn.commit()
         cur.close()
@@ -280,7 +272,6 @@ def complete_task():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- Архив ---
 @app.route('/api/get_archive', methods=['GET'])
 def get_archive():
     user_id, _ = check_auth()
@@ -313,17 +304,14 @@ def restore_task():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        # Получаем задачу из архива
         cur.execute("SELECT host_name, trigger_name, severity, comments, timestamp, created_at FROM tasks_archive WHERE id = %s", (task_id,))
         task = cur.fetchone()
         if not task:
             return jsonify({'error': 'Task not found'}), 404
-        # Вставляем обратно в активные
         cur.execute("""
             INSERT INTO tasks_active (host_name, trigger_name, severity, comments, timestamp, created_at)
             VALUES (%s, %s, %s, %s, %s, %s)
         """, (task[0], task[1], task[2], task[3], task[4], task[5]))
-        # Удаляем из архива
         cur.execute("DELETE FROM tasks_archive WHERE id = %s", (task_id,))
         conn.commit()
         cur.close()
@@ -332,7 +320,6 @@ def restore_task():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- Статистика (общая) ---
 @app.route('/api/stats', methods=['GET'])
 def stats():
     user_id, _ = check_auth()
@@ -355,7 +342,6 @@ def stats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- Администрирование (без изменений) ---
 @app.route('/api/list_users', methods=['GET'])
 def list_users():
     _, role = check_auth()
