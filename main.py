@@ -74,6 +74,7 @@ def init_tables():
         conn.commit()
         cur.close()
         conn.close()
+        print("Таблицы инициализированы")
     except Exception as e:
         print("Ошибка инициализации таблиц:", e)
 
@@ -93,8 +94,8 @@ def check_auth():
         conn.close()
         if user:
             return user['id'], user['role']
-    except Exception:
-        pass
+    except Exception as e:
+        print("Ошибка проверки токена:", e)
     return None, None
 
 @app.route('/')
@@ -142,10 +143,10 @@ def webhook():
 
 @app.route('/api/login', methods=['POST'])
 def login():
-    data = request.json
-    username = data.get('username', '')
-    password = data.get('password', '')
     try:
+        data = request.json
+        username = data.get('username', '')
+        password = data.get('password', '')
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cur.execute("SELECT id, password_hash, role FROM users WHERE username = %s", (username,))
