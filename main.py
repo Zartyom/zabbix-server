@@ -101,12 +101,11 @@ def check_auth():
         pass
     return None, None
 
-# ----- Корневой маршрут для проверки работы приложения -----
+# ----- Корневые маршруты для проверки работоспособности -----
 @app.route('/')
 def home():
     return "Zabbix monitoring API is running"
 
-# ----- Маршрут /api для проверки API -----
 @app.route('/api')
 def api_root():
     return jsonify({"status": "ok", "message": "API is running"})
@@ -293,7 +292,7 @@ def stats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ----- Администрирование (только для администратора) -----
+# ----- Администрирование -----
 @app.route('/api/list_users', methods=['GET'])
 def list_users():
     _, role = check_auth()
@@ -381,7 +380,7 @@ def delete_user():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ----- Тестовый маршрут для проверки соединения с БД -----
+# ----- Диагностический маршрут (опционально, можно удалить) -----
 @app.route('/api/test_db')
 def test_db():
     try:
