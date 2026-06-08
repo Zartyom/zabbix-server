@@ -362,7 +362,7 @@ def list_users():
         users = [dict(row) for row in cur.fetchall()]
         cur.close()
         conn.close()
-        return jsonify(users)
+        return jsonify({"users": users})   # обернули в объект
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
